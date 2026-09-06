@@ -180,7 +180,7 @@ class Agent:
             mcp_servers=[
                 {
                     "name": "incident-tools",
-                    "url": os.getenv(
+                    "endpoint": os.getenv(
                         "MCP_SERVER_URL",
                         "http://localhost:9000/mcp",
                     ),
