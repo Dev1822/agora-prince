@@ -15,9 +15,12 @@ const nextConfig: NextConfig = {
 
   async rewrites() {
     const backendUrl = process.env.AGENT_BACKEND_URL?.replace(/\/$/, '')
-    if (!backendUrl) {
-      return []
-    }
+const incidentServerUrl =
+  process.env.INCIDENT_SERVER_URL?.replace(/\/$/, '') || 'http://localhost:9000'
+
+if (!backendUrl) {
+  return []
+}
 
     return [
       {
@@ -32,7 +35,19 @@ const nextConfig: NextConfig = {
         source: '/api/stopAgent',
         destination: `${backendUrl}/stopAgent`,
       },
-    ]
+        {
+          source: '/api/incidents',
+          destination: `${incidentServerUrl}/incidents`,
+        },
+        {
+          source: '/api/incidents/:path*',
+          destination: `${incidentServerUrl}/incidents/:path*`,
+        },
+        {
+          source: '/api/services/health',
+          destination: `${incidentServerUrl}/services/health`,
+        },
+      ]
   },
 }
 

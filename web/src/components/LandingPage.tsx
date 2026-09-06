@@ -10,6 +10,7 @@ import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { QuickstartPreCallCard } from "@/components/QuickstartPreCallCard";
 import { ShareButton } from "@/components/share-button";
 import { getConfig, startAgent, stopAgent } from "@/services/api";
+import { IncidentDashboard } from "@/components/IncidentDashboard";
 import type { AgoraRenewalTokens, AgoraTokenData } from "@/types/conversation";
 
 const ConversationComponent = dynamic(
@@ -220,14 +221,22 @@ export default function LandingPage() {
 							) : null}
 							<Suspense fallback={<LoadingSkeleton />}>
 								<ErrorBoundary>
-									<AgoraProvider>
-										<ConversationComponent
-											agoraData={agoraData}
-											rtmClient={rtmClient}
-											onTokenWillExpire={handleTokenWillExpire}
-											onEndConversation={handleEndConversation}
-										/>
-									</AgoraProvider>
+									<div className="flex h-full min-h-0 w-full flex-col gap-4 p-4 lg:flex-row">
+  <div className="min-h-0 flex-1">
+    <AgoraProvider>
+      <ConversationComponent
+        agoraData={agoraData}
+        rtmClient={rtmClient}
+        onTokenWillExpire={handleTokenWillExpire}
+        onEndConversation={handleEndConversation}
+      />
+    </AgoraProvider>
+  </div>
+
+  <aside className="min-h-0 w-full lg:w-[420px]">
+    <IncidentDashboard />
+  </aside>
+</div>
 								</ErrorBoundary>
 							</Suspense>
 						</>
