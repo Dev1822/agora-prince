@@ -90,6 +90,12 @@ class StopAgentRequest(BaseModel):
 
 
 # API endpoints
+@router.get("/health")
+async def health():
+    """Health check endpoint for container liveness and smoke tests"""
+    return {"status": "ok"}
+
+
 def _generate_channel_name() -> str:
     return f"ai-conversation-{int(time.time())}-{random.randint(1000, 9999)}"
 

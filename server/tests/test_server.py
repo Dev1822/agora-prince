@@ -1,6 +1,12 @@
 """FastAPI route tests via TestClient + FakeAgent (no Agora cloud)."""
 
 
+def test_health_returns_status_ok(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_get_config_returns_envelope_and_token(client):
     response = client.get("/get_config")
     assert response.status_code == 200

@@ -52,7 +52,7 @@ jobs:
             "$IMAGE"
           set +e
           fail=0
-          for url in http://localhost:8000/get_config; do
+          for url in http://localhost:8000/health; do
             ok=""
             for i in $(seq 1 40); do
               if curl -fsS "$url" -o /dev/null; then ok=1; echo "OK   $url"; break; fi
