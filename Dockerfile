@@ -3,7 +3,7 @@ FROM python:3.12-slim-bookworm AS runtime
 
 # Run as a non-root user (created before any COPY so --chown can reference it).
 RUN useradd --create-home --uid 10001 app
-WORKDIR /app
+WORKDIR /app/server
 
 # Python dependencies for the FastAPI backend (installed as root into the
 # system site-packages, world-readable for the app user at runtime).
@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r /tmp/server-req.txt
 
 # Backend source, owned by the runtime user.
 COPY --chown=app:app server/src /app/server/src
+
+# Ensure Python includes /app/server on sys.path for package imports (e.g. from src.agent import Agent)
+ENV PYTHONPATH=/app/server
 
 # Drop privileges for the running process.
 USER app
