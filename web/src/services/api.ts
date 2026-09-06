@@ -62,6 +62,14 @@ export interface PendingAction {
   rejected_reason?: string | null
 }
 
+export interface TimelineEvent {
+  timestamp: string
+  event: string
+  category?: 'lifecycle' | 'fact' | 'hypothesis' | 'authorization' | 'action' | 'note' | string
+  details: string
+  metadata?: Record<string, any>
+}
+
 export interface Incident {
   id: string
   title: string
@@ -79,11 +87,7 @@ export interface Incident {
     timestamp: string
     note: string
   }>
-  timeline: Array<{
-    timestamp: string
-    event: string
-    details: string
-  }>
+  timeline: TimelineEvent[]
 }
 
 export interface GetIncidentsResponse {

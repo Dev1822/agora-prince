@@ -51,6 +51,43 @@ def active_incident_status(status: str) -> bool:
     }
 
 
+def create_timeline_event(
+    event_type: str,
+    details: str,
+    category: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    timestamp: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create a standardized, categorized timeline event."""
+    if not timestamp:
+        timestamp = now()
+
+    # Determine canonical category
+    if not category:
+        if event_type in {"incident_created", "status_changed"}:
+            category = "lifecycle"
+        elif event_type in {"fact_recorded"}:
+            category = "fact"
+        elif event_type in {"hypothesis_recorded", "hypothesis_confirmed", "hypothesis_rejected"}:
+            category = "hypothesis"
+        elif event_type in {"action_requested", "action_approved", "action_rejected"}:
+            category = "authorization"
+        elif event_type in {"action_completed", "action_executed"}:
+            category = "action"
+        elif event_type in {"note_added", "investigation_note"}:
+            category = "note"
+        else:
+            category = "lifecycle"
+
+    return {
+        "timestamp": timestamp,
+        "event": event_type,
+        "category": category,
+        "details": details,
+        "metadata": metadata or {},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Service health
 # ---------------------------------------------------------------------------
@@ -215,7 +252,6 @@ def create_incident(
             }
 
     # Server-side duplicate protection.
-    # The agent is still instructed to check active incidents first.
     for existing in incidents.values():
         if not active_incident_status(existing["status"]):
             continue
@@ -234,6 +270,20 @@ def create_incident(
     incident_id = f"INC-{uuid4().hex[:6].upper()}"
     timestamp = now()
 
+    sev_display = severity.upper()
+    initial_event = create_timeline_event(
+        event_type="incident_created",
+        category="lifecycle",
+        details=f"Incident {incident_id} created ({sev_display}) - {title}",
+        metadata={
+            "incident_id": incident_id,
+            "title": title,
+            "severity": severity,
+            "service": normalized_service,
+        },
+        timestamp=timestamp,
+    )
+
     incident = {
         "id": incident_id,
         "title": title,
@@ -248,13 +298,7 @@ def create_incident(
         "hypotheses": [],
         "pending_actions": [],
         "notes": [],
-        "timeline": [
-            {
-                "timestamp": timestamp,
-                "event": "incident_created",
-                "details": "Incident created and investigation started.",
-            }
-        ],
+        "timeline": [initial_event],
     }
 
     incidents[incident_id] = incident
@@ -319,13 +363,18 @@ def update_incident_status(
     if impact and impact.strip():
         incident["impact"] = impact.strip()
 
-    incident["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "status_changed",
-            "details": f"{previous_status} → {status}",
-        }
+    event = create_timeline_event(
+        event_type="status_changed",
+        category="lifecycle",
+        details=f"Incident moved from {previous_status.upper()} -> {status.upper()}",
+        metadata={
+            "previous_status": previous_status,
+            "new_status": status,
+            "root_cause": root_cause.strip() if root_cause and root_cause.strip() else None,
+        },
+        timestamp=timestamp,
     )
+    incident["timeline"].append(event)
 
     return {
         "success": True,
@@ -364,14 +413,14 @@ def add_incident_note(
         }
     )
 
-    incidents[incident_id]["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "investigation_note",
-            "details": note,
-        }
+    event = create_timeline_event(
+        event_type="note_added",
+        category="note",
+        details=note,
+        metadata={"incident_id": incident_id},
+        timestamp=timestamp,
     )
-
+    incidents[incident_id]["timeline"].append(event)
     incidents[incident_id]["updated_at"] = timestamp
 
     return {
@@ -434,13 +483,18 @@ def add_incident_fact(
     incidents[incident_id]["updated_at"] = timestamp
 
     evidence_note = f" (Evidence: {evidence.strip()})" if evidence and evidence.strip() else ""
-    incidents[incident_id]["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "fact_recorded",
-            "details": f"Fact recorded: {text}{evidence_note} [Confidence: {confidence}]",
-        }
+    event = create_timeline_event(
+        event_type="fact_recorded",
+        category="fact",
+        details=f"{text}{evidence_note} [Confidence: {confidence.upper()}]",
+        metadata={
+            "fact_id": fact_id,
+            "confidence": confidence,
+            "evidence": evidence.strip() if evidence and evidence.strip() else None,
+        },
+        timestamp=timestamp,
     )
+    incidents[incident_id]["timeline"].append(event)
 
     return {
         "success": True,
@@ -489,13 +543,17 @@ def add_incident_hypothesis(
     incidents[incident_id]["hypotheses"].append(hypothesis)
     incidents[incident_id]["updated_at"] = timestamp
 
-    incidents[incident_id]["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "hypothesis_recorded",
-            "details": f"Hypothesis recorded: {text}",
-        }
+    event = create_timeline_event(
+        event_type="hypothesis_recorded",
+        category="hypothesis",
+        details=f"Hypothesis recorded: {text}",
+        metadata={
+            "hypothesis_id": hypothesis_id,
+            "status": "unverified",
+        },
+        timestamp=timestamp,
     )
+    incidents[incident_id]["timeline"].append(event)
 
     return {
         "success": True,
@@ -550,13 +608,17 @@ def verify_hypothesis(
     matched["status"] = status
     incident["updated_at"] = timestamp
 
-    incident["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": f"hypothesis_{status}",
-            "details": f"Hypothesis {status}: {matched['text']}",
-        }
+    event = create_timeline_event(
+        event_type=f"hypothesis_{status}",
+        category="hypothesis",
+        details=f"Hypothesis {status.upper()}: {matched['text']}",
+        metadata={
+            "hypothesis_id": hypothesis_id,
+            "status": status,
+        },
+        timestamp=timestamp,
     )
+    incident["timeline"].append(event)
 
     return {
         "success": True,
@@ -627,13 +689,19 @@ def request_critical_action(
     incidents[incident_id]["pending_actions"].append(pending_action)
     incidents[incident_id]["updated_at"] = timestamp
 
-    incidents[incident_id]["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "action_requested",
-            "details": f"Critical action requested: {title} on {target_resource} (Risk: {risk_level.upper()}). Requires human authorization.",
-        }
+    event = create_timeline_event(
+        event_type="action_requested",
+        category="authorization",
+        details=f"Critical action requested: {title} on {target_resource} (Risk: {risk_level.upper()}) - awaiting human authorization",
+        metadata={
+            "action_id": action_id,
+            "action": action,
+            "target_resource": target_resource,
+            "risk_level": risk_level,
+        },
+        timestamp=timestamp,
     )
+    incidents[incident_id]["timeline"].append(event)
 
     return {
         "success": True,
@@ -645,6 +713,64 @@ def request_critical_action(
         "risk_level": risk_level,
         "status": "pending",
         "message": f"Critical action request {action_id} created. Human confirmation required before {action} can be executed.",
+    }
+
+
+@mcp.tool()
+def complete_action(
+    incident_id: str,
+    action_id: str,
+    result_summary: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Record that an approved remediation action was successfully executed and completed.
+    """
+    incident_id = incident_id.strip()
+    action_id = action_id.strip()
+
+    if incident_id not in incidents:
+        return {
+            "success": False,
+            "error": f"Incident not found: {incident_id}",
+        }
+
+    incident = incidents[incident_id]
+    actions = incident.get("pending_actions", [])
+
+    matched_action = None
+    for a in actions:
+        if a["id"].lower() == action_id.lower():
+            matched_action = a
+            break
+
+    if not matched_action:
+        return {
+            "success": False,
+            "error": f"Action not found: {action_id}",
+        }
+
+    timestamp = now()
+    matched_action["status"] = "completed"
+    incident["updated_at"] = timestamp
+
+    result_detail = f" Result: {result_summary.strip()}" if result_summary and result_summary.strip() else ""
+    event = create_timeline_event(
+        event_type="action_completed",
+        category="action",
+        details=f"Action completed: {matched_action['title']} on {matched_action['target_resource']}.{result_detail}",
+        metadata={
+            "action_id": action_id,
+            "target_resource": matched_action["target_resource"],
+            "result_summary": result_summary.strip() if result_summary and result_summary.strip() else None,
+        },
+        timestamp=timestamp,
+    )
+    incident["timeline"].append(event)
+
+    return {
+        "success": True,
+        "message": f"Action {action_id} marked as completed.",
+        "action": matched_action,
     }
 
 
@@ -734,6 +860,8 @@ def build_postmortem_markdown(incident: Dict[str, Any]) -> str:
                 auth_detail = f" — *Authorized by {a['approved_by']}*"
             elif act_status == "REJECTED" and a.get("rejected_reason"):
                 auth_detail = f" — *Rejected: {a['rejected_reason']}*"
+            elif act_status == "COMPLETED":
+                auth_detail = " — *Execution Completed*"
             action_lines.append(
                 f"- **[{act_status}]** {act_title} on `{resource}` (Risk: {risk}){auth_detail}\n"
                 f"  - Details: {a.get('details', 'No details provided.')}"
@@ -748,9 +876,9 @@ def build_postmortem_markdown(incident: Dict[str, Any]) -> str:
         timeline_lines = []
         for t in timeline:
             ts = t.get("timestamp", "Unknown")
-            evt = t.get("event", "event").replace("_", " ").upper()
+            cat = (t.get("category") or t.get("event", "event")).upper()
             det = t.get("details", "")
-            timeline_lines.append(f"- **`{ts}`** `[{evt}]` {det}")
+            timeline_lines.append(f"- **`{ts}`** `[{cat}]` {det}")
         timeline_section = "\n".join(timeline_lines)
     else:
         timeline_section = "_No timeline events recorded._"
@@ -856,6 +984,10 @@ class RejectActionRequest(BaseModel):
     reason: Optional[str] = "Rejected by human operator."
 
 
+class CompleteActionRequest(BaseModel):
+    result_summary: Optional[str] = None
+
+
 @app.get("/health")
 async def health():
     """Health check for the MCP server."""
@@ -875,9 +1007,11 @@ async def health():
             "add_incident_hypothesis",
             "verify_hypothesis",
             "request_critical_action",
+            "complete_action",
             "generate_incident_postmortem",
         ],
     }
+
 
 @app.get("/services/health")
 async def get_services_health():
@@ -957,13 +1091,18 @@ async def approve_incident_action(incident_id: str, action_id: str, req: Approve
     matched_action["approved_by"] = approved_by
     incident["updated_at"] = timestamp
 
-    incident["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "action_approved",
-            "details": f"Action {matched_action['title']} on {matched_action['target_resource']} approved by {approved_by}.",
-        }
+    event = create_timeline_event(
+        event_type="action_approved",
+        category="authorization",
+        details=f"Action {matched_action['title']} on {matched_action['target_resource']} authorized by {approved_by}.",
+        metadata={
+            "action_id": action_id,
+            "approved_by": approved_by,
+            "target_resource": matched_action["target_resource"],
+        },
+        timestamp=timestamp,
     )
+    incident["timeline"].append(event)
 
     return {
         "success": True,
@@ -1005,19 +1144,35 @@ async def reject_incident_action(incident_id: str, action_id: str, req: RejectAc
     matched_action["rejected_reason"] = reason
     incident["updated_at"] = timestamp
 
-    incident["timeline"].append(
-        {
-            "timestamp": timestamp,
-            "event": "action_rejected",
-            "details": f"Action {matched_action['title']} on {matched_action['target_resource']} rejected: {reason}.",
-        }
+    event = create_timeline_event(
+        event_type="action_rejected",
+        category="authorization",
+        details=f"Action {matched_action['title']} on {matched_action['target_resource']} rejected: {reason}.",
+        metadata={
+            "action_id": action_id,
+            "rejected_reason": reason,
+            "target_resource": matched_action["target_resource"],
+        },
+        timestamp=timestamp,
     )
+    incident["timeline"].append(event)
 
     return {
         "success": True,
         "message": f"Action {action_id} rejected.",
         "action": matched_action,
     }
+
+
+@app.post("/incidents/{incident_id}/actions/{action_id}/complete")
+async def complete_incident_action_endpoint(
+    incident_id: str, action_id: str, req: CompleteActionRequest
+):
+    """Mark an action as completed via REST endpoint."""
+    res = complete_action(incident_id, action_id, req.result_summary)
+    if not res.get("success"):
+        raise HTTPException(status_code=404 if "not found" in res.get("error", "").lower() else 400, detail=res.get("error"))
+    return res
 
 
 @app.get("/incidents/{incident_id}/postmortem")

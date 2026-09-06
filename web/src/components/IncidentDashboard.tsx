@@ -11,6 +11,7 @@ import {
 import type { Incident, ServiceHealth, PendingAction } from "@/services/api";
 import { HumanConfirmationModal } from "@/components/HumanConfirmationModal";
 import { PostMortemModal } from "@/components/PostMortemModal";
+import { IncidentTimeline } from "@/components/IncidentTimeline";
 
 const severityClasses: Record<Incident["severity"], string> = {
   low: "border-muted-foreground/30 bg-muted/30",
@@ -397,6 +398,9 @@ export function IncidentDashboard() {
                       )}
                     </div>
                   </div>
+
+                  {/* CATEGORIZED INVESTIGATION TIMELINE */}
+                  <IncidentTimeline events={incident.timeline} className="mt-3" />
 
                   {/* POST-MORTEM BUTTON */}
                   <div className="mt-3 border-t border-border/40 pt-2.5">
